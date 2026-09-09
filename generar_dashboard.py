@@ -24,10 +24,27 @@ def cargar_datos():
     return filas
 
 
-def contar_por(filas, campo):
+def normalizar(texto):
+    return str(texto or "").strip().lower()
+
+
+def buscar_campo(fila, *candidatos):
+    """
+    Busca el valor de un campo en la fila probando varios nombres posibles,
+    sin importar mayúsculas/minúsculas o espacios (ej. 'Status' vs 'status').
+    """
+    claves_normalizadas = {normalizar(k): k for k in fila.keys()}
+    for candidato in candidatos:
+        clave_real = claves_normalizadas.get(normalizar(candidato))
+        if clave_real is not None:
+            return fila.get(clave_real)
+    return None
+
+
+def contar_por(filas, *candidatos):
     conteo = {}
     for f in filas:
-        valor = f.get(campo) or "(Sin dato)"
+        valor = buscar_campo(f, *candidatos) or "(Sin dato)"
         conteo[valor] = conteo.get(valor, 0) + 1
     return dict(sorted(conteo.items(), key=lambda x: -x[1]))
 
@@ -36,23 +53,23 @@ def es_abierto(estado):
     if not estado:
         return False
     e = str(estado).strip().lower()
-    return e not in ("finalizado", "cerrado", "no aplica", "resuelto")
+    return e not in ("finalizado", "cerrado", "no aplica", "resuelto", "done", "closed")
 
 
 def armar_dataset(filas):
     total = len(filas)
-    abiertos = [f for f in filas if es_abierto(f.get("Status"))]
+    abiertos = [f for f in filas if es_abierto(buscar_campo(f, "Status", "Estado"))]
     cerrados = total - len(abiertos)
 
-    por_estado = contar_por(filas, "Status")
-    por_tipo = contar_por(filas, "Issue Type")
+    por_estado = contar_por(filas, "Status", "Estado")
+    por_tipo = contar_por(filas, "Issue Type", "Issue type", "Tipo")
     por_distribuidor = contar_por(filas, "Distribuidor")
-    por_asignado_total = contar_por(filas, "Assignee")
-    por_asignado_abiertos = contar_por(abiertos, "Assignee")
+    por_asignado_total = contar_por(filas, "Assignee", "Asignado")
+    por_asignado_abiertos = contar_por(abiertos, "Assignee", "Asignado")
 
     # Casos abiertos más antiguos (por fecha de creación)
     def fecha_creacion(f):
-        v = f.get("Created")
+        v = buscar_campo(f, "Created", "Creado", "Fecha Creación")
         if isinstance(v, datetime):
             return v
         try:
@@ -67,26 +84,27 @@ def armar_dataset(filas):
         fc = fecha_creacion(f)
         dias = (hoy - fc).days
         casos_antiguos.append({
-            "ticket": f.get("Ticket"),
-            "tipo": f.get("Issue Type"),
-            "distribuidor": f.get("Distribuidor") or "",
-            "estado": f.get("Status"),
-            "asignado": f.get("Assignee") or "(Sin asignar)",
+            "ticket": buscar_campo(f, "Ticket"),
+            "tipo": buscar_campo(f, "Issue Type", "Issue type", "Tipo"),
+            "distribuidor": buscar_campo(f, "Distribuidor") or "",
+            "estado": buscar_campo(f, "Status", "Estado"),
+            "asignado": buscar_campo(f, "Assignee", "Asignado") or "(Sin asignar)",
             "dias_abierto": dias,
-            "creado": str(f.get("Created"))[:10],
+            "creado": str(buscar_campo(f, "Created", "Creado", "Fecha Creación"))[:10],
         })
     casos_antiguos = sorted(casos_antiguos, key=lambda x: -x["dias_abierto"])
 
     detalle = []
     for f in filas:
         detalle.append({
-            "ticket": f.get("Ticket"),
-            "tipo": f.get("Issue Type"),
-            "distribuidor": f.get("Distribuidor") or "",
-            "estado": f.get("Status"),
-            "asignado": f.get("Assignee") or "",
-            "creado": str(f.get("Created"))[:10],
-            "resuelto": str(f.get("Resolved"))[:10] if f.get("Resolved") else "",
+            "ticket": buscar_campo(f, "Ticket"),
+            "tipo": buscar_campo(f, "Issue Type", "Issue type", "Tipo"),
+            "distribuidor": buscar_campo(f, "Distribuidor") or "",
+            "estado": buscar_campo(f, "Status", "Estado"),
+            "asignado": buscar_campo(f, "Assignee", "Asignado") or "",
+            "creado": str(buscar_campo(f, "Created", "Creado", "Fecha Creación"))[:10],
+            "resuelto": (str(buscar_campo(f, "Resolved", "Resolution Date", "Fecha Resolución"))[:10]
+                         if buscar_campo(f, "Resolved", "Resolution Date", "Fecha Resolución") else ""),
         })
 
     return {
@@ -232,7 +250,10 @@ document.getElementById('filtroDetalle').addEventListener('input', e => pintarDe
 
 def generar_html():
     filas = cargar_datos()
+    if filas:
+        print(f"Columnas detectadas en el Excel: {list(filas[0].keys())}")
     dataset = armar_dataset(filas)
+    print(f"Total: {dataset['overview']['total']}  Abiertos: {dataset['overview']['abiertos']}  Cerrados: {dataset['overview']['cerrados']}")
 
     html = HTML_TEMPLATE
     html = html.replace("__GENERADO__", dataset["generado"])
