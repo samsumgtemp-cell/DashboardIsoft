@@ -49,16 +49,62 @@ def contar_por(filas, *candidatos):
     return dict(sorted(conteo.items(), key=lambda x: -x[1]))
 
 
-def es_abierto(estado):
+def es_abierto_fila(fila):
+    """
+    Determina si Jira considera el ticket abierto.
+
+    Prioridad:
+      1) Status Category Key / Status Category (si el Excel los contiene).
+      2) Resolution/Resolved como respaldo.
+      3) Nombre del Status como compatibilidad con el Excel actual.
+
+    Así no dependemos únicamente de una lista rígida de nombres de estados.
+    """
+    categoria_key = buscar_campo(
+        fila,
+        "Status Category Key", "Status category key",
+        "StatusCategoryKey", "Categoría de estado key"
+    )
+    if categoria_key:
+        ck = normalizar(categoria_key)
+        if ck in ("done", "complete", "completed"):
+            return False
+        if ck in ("new", "indeterminate", "in progress", "in_progress", "todo", "to do"):
+            return True
+
+    categoria = buscar_campo(
+        fila,
+        "Status Category", "Status category",
+        "Categoría de estado", "Categoria de estado"
+    )
+    if categoria:
+        c = normalizar(categoria)
+        if c in ("done", "listo", "finalizado", "cerrado", "complete", "completed"):
+            return False
+        if c in ("to do", "por hacer", "in progress", "en curso", "new", "indeterminate"):
+            return True
+
+    resolucion = buscar_campo(fila, "Resolution", "Resolución", "Resolucion")
+    fecha_resolucion = buscar_campo(
+        fila, "Resolved", "Resolution Date", "Fecha Resolución", "Fecha Resolucion"
+    )
+    if resolucion or fecha_resolucion:
+        return False
+
+    estado = buscar_campo(fila, "Status", "Estado")
     if not estado:
         return False
-    e = str(estado).strip().lower()
-    return e not in ("finalizado", "cerrado", "no aplica", "resuelto", "done", "closed")
+
+    e = normalizar(estado)
+    return e not in (
+        "finalizado", "cerrado", "no aplica", "resuelto",
+        "done", "closed", "resolved", "cancelado", "cancelled"
+    )
 
 
 def armar_dataset(filas):
     total = len(filas)
-    abiertos = [f for f in filas if es_abierto(buscar_campo(f, "Status", "Estado"))]
+    abiertos = [f for f in filas if es_abierto_fila(f)]
     cerrados = total - len(abiertos)
 
     por_estado = contar_por(filas, "Status", "Estado")
