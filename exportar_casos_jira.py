@@ -33,7 +33,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -110,12 +110,25 @@ HEADERS = {"Accept": "application/json"}
 # ------------------------------------------------------------------
 
 def leer_ultima_actualizacion():
+    """
+    Lee la última sincronización y retrocede 10 minutos como margen de seguridad.
+    Esto evita perder cambios de Jira que ocurran cerca del corte entre corridas.
+    Como las filas se consolidan por Ticket, volver a recibir un ticket no lo duplica.
+    """
     if FORZAR_COMPLETO or not RUTA_ESTADO.exists():
         return None
     try:
         with open(RUTA_ESTADO, "r", encoding="utf-8") as f:
-            return json.load(f).get("ultima_actualizacion")
-    except Exception:
+            valor = json.load(f).get("ultima_actualizacion")
+
+        if not valor:
+            return None
+
+        fecha = datetime.strptime(valor, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        fecha_segura = fecha - timedelta(minutes=10)
+        return fecha_segura.strftime("%Y-%m-%d %H:%M")
+    except Exception as e:
+        print(f"ADVERTENCIA: no se pudo leer la última actualización ({e}).")
         return None
 
 
